@@ -1,0 +1,547 @@
+---
+title: Trend Analysis and Future Prediction of Milk Production in Türkiye on R Programme
+author: "Assoc. Prof. Burcu MESTAV"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: cosmo
+    keep_md: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    highlight: textmate
+    html_preview: yes
+    df_print: kable
+    pandoc_args:
+    - "--number-sections"
+    - "--number-offset=0"
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+  word_document:
+    toc: yes
+    toc_depth: '2'
+fontsize: 12pt
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	dpi=500,
+	dev = "jpeg"
+)
+```
+
+This page was prepared by Assoc. Prof. Burcu Mestav for time series analysis and forecasting example in R program using annual trends of milk production in Türkiye. 
+
+# Introduction
+
+The dataset under study consists of Türkiye’s monthly milk production amount available on  the Turkish Statistical Institute (TurkStat) website. This dataset covers 13 years – specifically, from January 2010 to August 2023 – and comprises a total of 164 entries. The analysis of this dataset will provide an intuitive way to analyse milk production quantity models for Türkiye. The aim of this report is to be able to predict the next 12-year values of the dataset, i.e., the monthly production of the subsequent year.
+The model is built using the R programming language. In building the model, various established techniques were used, such as examining the stationarity of the dataset, model selection through Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF)	analysis and model diagnostic tests by performing residual analyses. The resulting model passes all these tests and shows accurate forecasting ability in accordance with the dataset.
+
+
+# Loading libraries
+The analyses carried out in this study require the installation of the following `packages`, which can be easily installed in R.
+
+```{r Library-calls, message=FALSE, warning=FALSE, include=F, eval=T, results="hide"}
+library(data.table)
+library(readxl)     # reading excel files
+library(tidyverse)  # meta package for manipulating and visualizing data frames
+library(lubridate) # packagae for manipulating dates
+library(forecast)  # meta package Time Series forecasting & Time Series Linear Models
+library(fpp2)      # data for "Forecasting: Principles and Practice" 
+library(seastests) #seasonality test
+library(wql)
+library(lmtest)
+library(patchwork)
+library(fpp3)
+library(tseries)
+library(itsmr)
+library(ggfortify)
+library(tsibble)
+library(Kendall)
+
+```
+
+
+```{r fonksiyon, include=FALSE}
+create_dt <- function(x){
+  DT::datatable(x,
+                extensions = 'Buttons',
+                options = list(dom = 'Blfrtip',
+                               buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
+                               lengthMenu = list(c(10,25,50,-1),
+                                                 c(10,25,50,"All"))))
+} 
+```
+
+
+# Data importing
+
+In this part the dataset is imported, which is referred to as **milk_production** object. Where the first six values will be shown.  The data has two variables: **year** and **production**, which contain the annual data and the monthly amount of milk production by different years, respectively. The set include data from 2010 to 2023.
+The *milk production.xlsx* file is imported with the **read_excel()** function in the *readxl* library. To get an idea of the structure of this simple data.frame, you can check the first few lines of the data.frame using the **head()** function, which displays the first few lines of the dataset.
+
+
+
+```{r data importing}
+milk_production = read_excel("milk production.xlsx", sheet = "Sayfa1")
+
+# display the first 6 items of the milk_production dataset
+head(milk_production)
+```
+
+
+
+Importing data into R can be performed in a variety of ways. R has tools for importing data stored in Excel (xlsx) and flat (txt, csv, etc.) documents, ASCII and binary data, data from other applications and programs, and even database connections. In order to perform time series analysis with a data set imported with one of these tools, the data set must be converted into a **time-series object**.
+A time series object is created using the **ts()** (in basic R) function.
+Even if you have data containing dates and corresponding values in an R object from any other class, such as data frame, creating objects from the ts class offers many advantages, such as time index information. Moreover, when you graph a ts object, it automatically creates a drawing over time. The syntax for a time-series object is as follows
+
+
+*timeseries.object.name <- ts(data, start, end, frequency)*
+
+**ts()** takes three arguments, i.e., data, start, end and frequency. *start* is set to indicate the start time of the first observation, *end* to indicate the end time of the first observation, and *frequency* to indicate the periodicity of the observations.
+The value of the frequency parameter in the **ts()** function determines at which time intervals the data points are measured. For example, a value of 12 indicates that the time series is for 12 months. A value of 4 fixes the data points for each quarter of a year, and a value of 52 fixes the data points for each week over a 52-week period.
+The following code fragment converts the imported dataset into a ts object.
+
+
+```{r}
+# Convert Vector to Time-Series "ts" class
+# Data starts in 2010 - 12 observations/year (monthly)
+milk_timeseries = ts(data = milk_production$prod,
+                  start=c(2010, 01),
+                  end=c(2023, 08),
+                  frequency = 12)
+head(milk_timeseries)
+glimpse(milk_timeseries) #provides a brief information about the object, like a transformed version of print()
+```
+
+# Visualisation of Time Series
+
+The first step in any data analysis task is to plot the data. This stage of analysis is called Exploratory Data Analysis (EDA)., which is the stage where you? start to produce your? hypotheses and visualisation is the most important part. Graphs allow you to analyse the data in many ways, including patterns, unusual observations, changes over time, and relationships between variables, giving your data a concrete structure. The type of variables in your data set determines which estimation method to use, as well as which graphs are appropriate. For example, a line plot is an appropriate graph type for time series data.At this stage, the main features of the series will be defined by drawing the graph of the series (time series graph, Correlogram: ACF and PACF graph and seasonal-subseries graph will be used for this purpose).
+
+
+## Time series graph
+
+The most preferred package for visualisation in R is `ggplot2`. However, there are many useful packages that can be used especially for visualising time series data. In this study, the **plot.ts()** function in the `stats` package was used.
+Let’s visualise the data set converted into a time series object on a plot.
+
+
+
+```{r Figure 1, fig.height=10, fig.width=14, dev='jpeg', dpi=500}
+plot.ts(milk_timeseries, 
+     main = "Figure 1. Time Series plot of Türkiye's Milk Production",
+     xlab = "2010-2023 (monthly data)",
+     ylab = "Milk Production (ton)",
+     col = "violetred3",
+     type='o',
+     lwd=2)
+```
+
+After analysing the graph in Figure 1, the following comments can be made about the structure of the series:
+
+- *Seasonality* - There are repeating patterns in the graph which indicate the presence of seasonality.
+
+- *Stationarity* - The data set is not stationary due to its apparent seasonality. More tests will be conducted to confirm the stationarity of theseries.
+
+- *Trend* - The time series data set displays an upward trend, which means that milk production has increased over time.
+
+- *Changing Variance* - Although the time series graph displays small changes in variance, the presence of seasonality makes inadequate the graphical interpretation of the variance and the behaviour of the series.
+
+- *Missing value and outlier* - There are no missing data and no outlier data point(s) observed in the time series data. With the consistent seasonality of the series, none seems to be present.
+Due to the consistent seasonality of the series, no outlier point appears to occur. The presence of an outlier data point in the data should be examined in two ways: visualisation and analytical examination. In Figure 1, although no noticeable data point is observed, it can be checked in a simple way with the **tsoutliers()** function in the  `forecast` package.
+
+
+
+```{r}
+tsoutliers(milk_timeseries)
+```
+
+## Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF) graph
+
+Autocorrelation measures the linear relationship between lagged values of a time series.
+
+Autocorrelation analysis is an important step in Exploratory Data Analysis of time series forecasts. It helps to detect patterns and check for randomness.  It is also particularly important when you want to use a forecasting model same as ARIMA because it helps to determine its parameters. 
+Two statistics (ACF and PACF) are used for autocorrelation analysis.
+
+-   **The autocorrelation function (ACF).**
+
+The **ACF** statistic quantifies the correlation between $x_t$ and $x_{t+k}$, where k is the number of future leading periods. It measures the correlation between any two periods based on a given interval. 
+
+-   **The parital autocorrelation function (PACF).**
+
+The **PACF** is a measure of the correlation between time series observations with k unit lags, after controlling for the correlation in the intermediate lags or " partitioning". That is, the PACF measures the correlation between $x_t$ and $x_{t+k}$ after removing the effect of intermediate x's.
+
+You can use different packages to plot the ACF and PACF graphs of the series. The **Acf()** and **Pacf()** functions used in the code block below are functions belonging to the `forecast` package.
+
+```{r Figure 2, fig.height=10, fig.width=14, dev='jpeg', dpi=500}
+par(mfrow = c(1,2)) #par is used to set a parameter for the intended graphic
+Acf(milk_timeseries, main = 'ACF for milk production series',lag=100)
+Pacf(milk_timeseries, main = 'PACF for milk production series ', col = '#cc0000',lag=100)
+
+```
+
+Both Figure 1 and the ACF and PACF plots (Figure 2) show that the series is non-stationary, series have a seasonal component, the variance is irregular and there is autocorrelation between observation points. When data are seasonal, the autocorrelations will be larger at the seasonal lags (at multiples of the seasonal frequency) than for other lags. However, it should be noted that deciding to conduct a model based on visualisations alone constitutes a subjective judgement. These visualisations will help you to formulate hypotheses about suspected phenomena and to select appropriate statistical tests when moving to the stage of verifying your hypothesis. For this purpose, the tests of the hypotheses to be established for the absence of structural decompositions such as stationarity, seasonality and trend will be carried out in the model execution phase of the section.
+
+Please note that the ACF and PACF plots are of particular importance for making decisions about the models you will conduct for forecasting later on, thanks to the outputs they provide during the exploratory data analysis phase.
+
+
+## Seasonal-subseries graph
+
+In addition to time graphs, seasonal graphs can be used to clearly see the seasonal pattern and to show the changes in the seasonality of these patterns over time.  In this study, it was designed to present both time graphs and two different seasonality graphs (**ggseasonplot()** function in `forecast` package) together. In this way, both seasonal plots for each year and mini time plots for each season were obtained. 
+
+
+```{r Figure 3, fig.height=10, fig.width=14, dev='jpeg', dpi=500}
+
+# Produce a polar coordinate season plot for the milk_timeseries 
+p1 = ggseasonplot(milk_timeseries, polar = TRUE)
+# Create the basic plot of the milk_timeseries series
+p2 = autoplot(milk_timeseries)+
+  ylab("milk production")
+
+# Create a seasi=onal plot of milk_timeseries
+p3 = ggseasonplot(milk_timeseries , year.labels=TRUE, year.labels.left=TRUE) +
+  ylab("milk production") 
+
+#Figure 3. Seasonal-subseries plot for the milk_timeseries
+p3 | p1/p2
+
+```
+
+Figure 3 demonstrates the seasonal variation of milk production amount over time. The amount of milk production starts to increase monotonically from February, reaches a peak in May and shows a monotonous decreasing trend towards September. When the series is analysed for 2023, low values are obtained compared to previous years. TUIK reported that the reason for this is that these values were created by making temporary applications in statistical production processes due to the inability to obtain healthy data/information from the regions affected by the earthquake disaster.
+
+Figure 3 displays a pattern related to the seasonality component. However, different graphical tools can be used to make it more visible.  One of them, the **gglagplot()** function in `forecast`, reveals more precisely the jumps in the recurring pattern on a monthly basis. When trying to interpret the relationship in each month with the graph obtained with the gglagplot function, the decisive thing is to look at how the months are distributed on a reference line passing through the diagonal of each graph. 
+
+```{r Figure 4, fig.height=10, fig.width=14, dev='jpeg', dpi=500}
+
+gglagplot(milk_timeseries, lags=24) #Figure 4. 
+```
+
+
+Figure 4 shows that there is a strong correlation between the months at lag 12 and lag 24. It therefore becomes a little more obvious that when analysing this series it is first necessary to purify seasonal effects (`deseasonalize`). 
+
+
+# Confirmation of Hypotheses Regarding the Phenomena Foreseen in the Visualisation Section
+
+Under this heading, hypotheses regarding the subjective judgments obtained through visualization will be formulated and these hypotheses will be tested with the corresponding tests. In addition, the series will be seasonally adjusted and prepared for analysis after the stationarity assumption is provided.
+
+In a time series, there are various influences or forces that influence the values of a variable and are called time series components.  These can be grouped under 4 titles: trend, cycle, seasonality and irregular or remainder/residual effect. It is not part of this paper to explain the details of these components, but if you want to learn more about the subject, you can read [Time Series Analysis With R book.]("https://nicolarighetti.github.io/Time-Series-Analysis-With-R/")
+
+## Component analysis and seasonality adjustment 
+
+The series will be decomposed into its components and then the Friedman rank test will be applied to obtain an objective assessment of the seasonality effect in the series. You can use the **stl()** function to decompose the series into its components. This function will create a multiple time series with columns seasonal, trend and remainder. With the **autoplot()** function you can obtain these series as shown in figure 5.
+
+
+```{r Figure 5, fig.height=10, fig.width=14, dev='jpeg', dpi=500}
+ts.stl_mp <- stl(milk_timeseries,"periodic")  # decompose the TS
+head(ts.stl_mp$time.series)
+autoplot(ts.stl_mp) # Figure 5. Decomposition of time series"
+```
+
+Figure 5 displays separately the presence of trend, seasonality and irregular effect, which are subjectively expressed in the visualisation section.
+
+
+```{r friedman test}
+fr_mp=fried(milk_timeseries,freq = 12)
+summary(fr_mp)
+```
+
+The most important problem of the series is that it has a seasonality component. For this purpose, Friedman Rank test was conducted to make an objective decision about the null hypothesis of no seasonality. According to the test result, the null hypothesis of no stationary seasonality is rejected at 0.05% significance level ($p=0<0.05$). It is decided that the series contains a seasonality component. In this case, the series should be seasonalty adjusted before proceeding with the analysis. 
+
+The **seasadj()** function in the `forecast` package was used to seasonally adjust the series. When the series is re-examined by friedman rank test, the null hypothesis "there is no seasonality" cannot be rejected at 0.05% significance level. In other words, the series is seasonally adjusted (Figure 6). After this stage, the study is continued with the seasonally adjusted series (`ts.sa_mp object`) instead of the raw series (`milk_timeseries object`).
+
+```{r Figure 6, fig.height=10, fig.width=14, dev='jpeg', dpi=500}
+
+ts.sa_mp <- seasadj(ts.stl_mp)  # de-seasonalize series
+plot.ts(ts.sa_mp, 
+     main = "Figure 6. Time Series plot of seasonally adjusted series",
+     xlab = "2010-2023 (monthly data)",
+     ylab = "Milk Production (ton)",
+     col = "blue",
+     lwd=2)
+
+fr.sa_mp=fried(ts.sa_mp,freq = 12)
+summary(fr.sa_mp)
+```
+
+
+## Stationary analysis of series
+
+In simple terms, stationarity is defined as the time series data do not increase or decrease continuously over a given time period, and the series show a random dispersion (fluctuation around a constant mean) along a horizontal axis over time. The fluctuation around the mean should be considered in conjunction with the assumption that the variance of the series remains constant over time. In order to proceed with the analysis, it is necessary to test the null hypothesis that the series is stationary. If the series is not stationary, the series is converted to stationary by applying manipulations such as data transforming (for example log transformation or Box-Cox transformation) or differencing the series and the forecasting analysis is started. Many tests have been developed to check stationarity. These tests are called Unit Root Tests. Unit root tests are constructed as a "Random Walk" where today's value is equal to yesterday's + random noise. The most commonly used unit root tests are `Augmented Dickey-Fuller (ADF)` and The `Kwiatkowski-Phillips-Schmidt-Shin (KPSS)` tests. ACF also provides information about the stationarity of the series. It is recommended to use at least two of the suggested tests instead of a single test in the stationarity control you will carry out in your studies and to present both of them in the study. 
+
+-   **Detect Non-Stationarity ADF**
+
+The Augmented Dickey Fuller (ADF) test emphasises non-stationarity, the so-called unit root. Stationarity was tested using the **adf.test()** function in the `tseries` package.
+
+Set the hypothesis test:
+
+$H_0$ : that the time series is non stationary
+
+$H_1$ : that the time series is stationary
+
+```{r}
+adf.test(ts.sa_mp)
+```
+
+As a general rule, when the p-value is greater than 5%, there is strong evidence in favour of the null hypothesis, so the null hypothesis cannot be rejected. According to the above test results, since the p-value is `0.2504` and `>0.05`, the null hypothesis that the time series is non stationary "cannot be rejected". In other words, the seasonally adjusted series is non stationary series.
+
+
+-   **Detect Non-Stationarity KPSS**
+
+To test the stationarity of the time series, the results of the Kwiatkowski-Phillips-Schmidt-Shin Test are obtained by using the **kpss.test()** function in the `tseries` package.
+
+Set the hypothesis test:
+
+$H_0$ : that the time series is stationary
+
+$H_1$ : that the time series is non stationary
+
+```{r}
+kpss.test(ts.sa_mp)
+```
+
+As a general rule, when the p-value is less than 5%, there is strong evidence against the null hypothesis, so the null hypothesis is rejected. According to the above test results, the p-value is `0.01` and `<0.05` and therefore the null hypothesis that the time series is stationary is rejected, i.e. the seasonally adjusted series is a non-stationary series.
+
+Figure 7 plots the ACF and PACF graphs for the seasonally adjusted series. As a result, both ADF and KPSS tests and ACF/PACF plots show that the series is non-stationary.
+
+```{r Figure 7, fig.height=10, fig.width=14, dev='jpeg', dpi=500}
+par(mfrow = c(1,2)) #par is used to set a parameter for the intended graphic
+#Figure 7. The ACF and PACF plots for the seasonally adjusted series.
+Acf(ts.sa_mp, main = 'ACF for seasonality adjusted milk production series',lag=30)
+Pacf(ts.sa_mp, main = 'PACF for seasonality adjusted milk production series ', col = '#dd6412',lag=30)
+```
+
+
+## Trend analysis
+
+A time series has trend behaviour if it has the longest-term increase or decrease. The simplest model for a trend is a linear increase or decrease, but the trend need not be linear.  Both the milk production series (in `figure 1`) and the seasonally adjusted series (`figure 6`) show a clear upward, linear trend. 
+
+`Mann Kendall` test was used in this study to statistically evaluate the existence of the trend observed in the series. Hypotheses for the existence of a trend;
+
+$H_0$ : There is no trend in the series
+
+$H_1$ : There is a positive trend in the series
+
+
+
+```{r}
+
+MannKendall(ts.sa_mp)
+```
+
+The null hypothesis $H_0$ is be rejected due to the calculated p-value is less than alpha=0.05 significance level. The series has a statistically significant trend component.
+
+After checking whether there is a trend in the series, the magnitude of the trend is estimated using `Sen's slope` estimator.
+
+
+```{r}
+sen.slo_sa.mp=wql::mannKen(ts.sa_mp)
+slope = sen.slo_sa.mp$sen.slope
+slope.pct = sen.slo_sa.mp$sen.slope.rel
+direction <- ordered(ifelse(slope > 0, "Increasing", "Decreasing"), levels = c("Increasing", 
+    "Decreasing"))
+pval <- sen.slo_sa.mp$p.value
+signif <- cut(pval, breaks = c(0, 0.05, 0.1, 1), labels = c("p<0.05", "0.05<p<0.10", 
+    "p>0.10"))
+
+data.frame(METHOD = "Trend", SLOPE = slope, SLOPE.PCT = slope.pct, 
+    PVAL = pval, SIGNIF = signif, DIRECTION = direction)
+```
+
+The Sen's slope output reveals that each year has an increase of approximately 3% compared to the previous year and this slope is statistically significant.
+
+## De-trending and stationarisation of the series
+
+The seasonally adjusted series has a growing trend and is non-stationary. Most variables representing the amount of production or sales of any product can be treated as non-stationary. 
+
+When working with production quantity data, I strongly recommend taking the logarithm or first difference of the variable. you can do this repeatedly, but you need to check for stationarity each time you try.  So we can make this transformation as follows:
+
+
+```{r Figure 8, fig.height=10, fig.width=14, dev='jpeg', dpi=500}
+ln_samp <- log(ts.sa_mp) # log transformation
+adf.test(ln_samp) #to check stationary or not
+ndiffs(ln_samp)   # how many difference should be taken
+#logarithmically transformed and 1 differenced series
+diff_samp <- diff(ts.sa_mp, lag=frequency(ts.sa_mp), differences=1)
+adf.test(diff_samp)
+
+# Figure 8. Plots of de-trending and stationarised series
+plot.ts(diff_samp, 
+     main = "Figure 8. Plots of de-trending and stationarised series",
+     xlab = "2010-2023 (monthly data)",
+     ylab = "Milk Production (ton)",
+     col = "#115B74",
+     lwd=2)
+
+```
+
+
+While stationarity was not provided whenlogarithmic transformation is performed on the series, stationarity was provided (ADF test rejecting the null hypothesis by producing a small p-value) when 1 differenced. In the forecasting analysis, we will use the diff_samp object in which we created the series with 1 differenced.
+
+# ARIMA and Future prediction milk production (Forecasting data)
+
+In this section, the workflow for forward forecasting of the series that have become analysable using the Autoregressive Integrated Moving/Average Seasonal model (`ARIMA/SARIMA`) model will be explained. This method is part of `Box-Jenkins time series models`, which provide a set of tools to understand the past behaviour of time series variables and forecast their future values.
+
+ARIMA model captures the current values of a time series variable using its past values and random shocks in the past period. The model is fundamentally a form of linear regression model in which the predictors are lags of the model. 
+
+
+Underlying all time series is known to be a data generating process. Under the assumption that a time series is stationary, there are three processes `AR(p)` (autoregressive scheme), `MA(q)` (moving average) and `ARMA(p,q)` (autoregressive moving average).  It is also known that most series are non-stationary, i.e. integrated I(d). However, there is also a design in which an I(d) time series becomes stationary when differenced d times and can then be modelled by an ARMA(p,q) process. This is called (autoregressive integrated moving average/autoregressive seasonal moving average) `ARIMA (p,d,q) / SARIMA (P,D,Q)` process.
+
+It is note that ARIMA(p,d,q) process includes AR(p), MA(q) and ARMA(p,q) processes. This means that in order to forecast the time series, it is necessary to determine the values of p, d and q. Determining the values of p, d, and q can be time costly. In this study, the workflow of determining the values of p, d, and q and then the **autoARIMA()** function that can do this job in a shorter time will be explained.
+
+When analysing time series, ACF and PACF plots are important in order to provide model orders, such as p for AR and q for MA, to select the best model for forecasting.
+Firstly, you need to understand what we will see on the charts. The two blue lines on the charts represent thresholds of significance. Anything above these two lines reveals significant correlations. When looking at the ACF chart, we ignore the long spikes at lag 0. For PACF, the line usually starts at 1. The lag axes will be different depending on the time series data. In both graphs, the structure of the spikes oscillating at the constant mean axis observed along the x-axis starting from the first spike is called a tail. In the graph, you will observe the pattern of this tail-off (i.e., the spikes remain between the two blue lines). The basic rules for interpreting the ACF and PACF graphs are as follows:
+
+•	If the tail-off in the ACF occurs gradually and in the PACF suddenly or completely after a certain lag, this will provide the order p for AR(p).
+
+•	If in the ACF the tail is suddenly or completely cut off after a certain lag and the tail-off in the PACF occurs gradually, this will give the order q for MA(q).
+
+•	If  a gradual tail-off occurs both the ACF and the PACF, this will provide the orders p and q for ARMA(p,q).
+Examining the ACF/PACF graph given in Figure 7 for the series with firt-difference, it is seen that the process covers both AR and MA.
+The Arima() function in the forecast package can be used to determine the coefficient values of the models. For model comparisons, the AICc() function is used to determine which model fits the data by comparing AICc between the models. At this stage, many values are tried, and many models are obtained to optimise the model. The results obtained from a number of trials are given below.
+s
+
+```{r include=FALSE}
+diff_samp=milk_timeseries
+```
+
+
+```{r}
+
+modelPerfomance = data.frame()
+# ARIMA; p=1,d=0,q=0 and SARIMA; p=0,d=0,q=0
+(fit1 = diff_samp %>% 
+    Arima(order=c(1,0,0), seasonal = list(order=c(0,0,0), period = 12)))
+coeftest(fit1) # coefficient are significant
+
+modelPerfomance = rbind(modelPerfomance, list("order" = "100*000", "AIC"= fit1$aic, "BIC" = fit1$bic))
+
+# ARIMA; p=1,d=1,q=0 and SARIMA; p=0,d=0,q=0
+(fit1 = diff_samp %>% 
+    Arima(order=c(1,1,0), seasonal = list(order=c(0,0,0), period = 12)))
+coeftest(fit1) # coefficient are significant
+
+modelPerfomance = rbind(modelPerfomance, list("order" = "110*000", "AIC"= fit1$aic, "BIC" = fit1$bic))
+
+# ARIMA; p=1,d=1,q=1 and SARIMA; p=0,d=0,q=0
+(fit1 = diff_samp %>% 
+    Arima(order=c(1,1,1), seasonal = list(order=c(0,0,0), period = 12)))
+coeftest(fit1) # coefficient are not significant
+
+modelPerfomance = rbind(modelPerfomance, list("order" = "111*000", "AIC"= fit1$aic, "BIC" = fit1$bic))
+
+# ARIMA; p=1,d=1,q=0 and SARIMA; p=1,d=0,q=0
+(fit1 = diff_samp %>% 
+    Arima(order=c(1,1,0), seasonal = list(order=c(1,0,0), period = 12)))
+coeftest(fit1) # coefficient are significant
+
+modelPerfomance = rbind(modelPerfomance, list("order" = "110*100", "AIC"= fit1$aic, "BIC" = fit1$bic))
+
+# ARIMA; p=1,d=0,q=0 and SARIMA; p=1,d=1,q=0
+(fit1 = diff_samp %>% 
+    Arima(order=c(1,1,0), seasonal = list(order=c(0,0,1), period = 12)))
+coeftest(fit1) # coefficient are significant
+
+modelPerfomance = rbind(modelPerfomance, list("order" = "100*110", "AIC"= fit1$aic, "BIC" = fit1$bic))
+
+
+# ARIMA; p=1,d=0,q=1 and SARIMA; p=1,d=0,q=0
+(fit1 = diff_samp %>% 
+    Arima(order=c(1,0,1), seasonal = list(order=c(1,0,0), period = 12)))
+coeftest(fit1) # coefficient are significant
+
+modelPerfomance = rbind(modelPerfomance, list("order" = "101*100", "AIC"= fit1$aic, "BIC" = fit1$bic))
+
+# ARIMA; p=1,d=0,q=1 and SARIMA; p=1,d=0,q=1
+(fit1 = diff_samp %>% 
+    Arima(order=c(1,0,1), seasonal = list(order=c(1,0,1), period = 12)))
+coeftest(fit1) # coefficient are significant
+
+modelPerfomance = rbind(modelPerfomance, list("order" = "101*101", "AIC"= fit1$aic, "BIC" = fit1$bic))
+
+
+# ARIMA; p=1,d=0,q=0 and SARIMA; p=0,d=0,q=1
+(fit1 = diff_samp %>% 
+    Arima(order=c(1,0,0), seasonal = list(order=c(0,0,1), period = 12)))
+coeftest(fit1) # coefficient are significant
+
+modelPerfomance = rbind(modelPerfomance, list("order" = "100*001", "AIC"= fit1$aic, "BIC" = fit1$bic))
+
+modelPerfomance
+
+```
+
+When selecting a model, the lowest AIC=3763.081 and BIC=3781.68 values are taken into account. Among the models conducted above, the lowest AIC and BIC values belong to the "101*101" model. This makes it the best model. 
+
+The estimation results of the selected model are as follows.
+
+
+
+
+```{r}
+(model = diff_samp %>%   
+    Arima(order=c(1,0,1), seasonal = list(order=c(1,0,1), period = 12)))
+
+coeftest(model)
+
+```
+
+The coefficients estimated from the model are statistically significant (p<0.05). The model pattern generated according to the selected values is given in equation below.
+
+$$Y_t=\phi+\phi_1Y_{t-1}-\theta_1\epsilon_{t}+ \phi1Y_{t-12}-\theta_1\epsilon_{t-12}+\epsilon_t$$
+or in its estimated form
+
+$$Y_t=7.49+9.71Y_{t-1}-1.59\epsilon_{t}+ 9.91Y_{t-12}-7.04\epsilon_{t-12}+\epsilon_t$$
+
+```{r}
+test(model$residuals)
+```
+
+**model object** Residual Diagnostic Assumptions and useful properties:
+
+$\epsilon_t$ is uncorrelated. All spikes in the ACF and PACF plots are within the boundary of the threshold. So the residuals are uncorrelated. 
+
+The mean of $\epsilon_t$ is zero. The time plot of the residuals displays the zero mean. The variation of the residuals remains almost the same throughout the historical data and there are no outliers and therefore the residual variance can be considered constant.
+
+$\epsilon_t$ is normally distributed. The normal Q-Q plot shows that the residuals are normally distributed.
+
+
+To simplify things, an **auto.arima()** function has been written in the forecast package. This allows the parameters of the model to be automatically selected for best fit. These parameters term are
+
+p: number of "lags" used as predictors
+d: number of differentiations required to make the series stationary
+q: number of lagged forecast errors required for the model
+
+An auto.arima model was applied here.
+
+```{r}
+M1 = auto.arima(diff_samp)
+
+coeftest(M1)
+```
+
+According to the results obtained with Auto.arima, the values of the proposed model are 110*011. The AIC and BIC values of the proposed model are 3440.46 and 3449.51, respectively. These values are lower than the AIC and BIC values of the model that we tried to optimise by giving our own values above. 
+
+
+Since the milk production quantity data continues until the end of August 2023, let's try to predict the milk production quantity for the rest of the year based on the output of both the **model** and the **M1** object.
+
+
+```{r}
+(fVals.model = model %>%  forecast::forecast(h=19))
+(fVals.M1 = M1 %>%  forecast::forecast(h=19))
+
+par(mfrow = c(1,2))
+plot(fVals.model, main="forecast of model trials")
+plot(fVals.M1, main="forecast of auto.arima function")
+
+
+```
+
+# Conclusion
+
+As can be seen from both the graph and forecasts, Türkiye's milk production is expected to show a slight decline in the last four months of 2023. However, when the seasonality in the raw data is analysed, it is interpreted that the production amount shows a monotonic decrease starting from September.  In addition, for 2024, the model object predicts a slight decrease compared to 2023, while the model derived with auto.arima predicts a slight increase. Obtaining less biased forecasts is possible with more observation points, as well as with models that can be selected with different model applications.  The application of time series analyses such as this can be converted into information for determining the amount of drinking milk and dairy production. 
+
+Moreover, time series analysis has many more applications.  Almost everything with a time element can be analysed and predicted in this way.  30 years ago George Box emphasised the objectivity that "All models are wrong, but some are useful." 
